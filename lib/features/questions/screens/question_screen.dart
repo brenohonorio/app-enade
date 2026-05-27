@@ -1,3 +1,4 @@
+import 'dart:async'; // Necessário para o Timer
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/local/local_storage_service.dart';
@@ -22,6 +23,10 @@ class _QuestionScreenState extends State<QuestionScreen> {
   bool _isQuestionLocked = false;
   int _currentXP = 0;
 
+  // --- VARIÁVEIS DO CRONÔMETRO ---
+  Timer? _timer;
+  int _secondsRemaining = 3600; // 3600 segundos = 60 minutos
+
   @override
   void initState() {
     super.initState();
@@ -29,24 +34,89 @@ class _QuestionScreenState extends State<QuestionScreen> {
     _loadQuestionsFromCloud(); 
   }
 
+  @override
+  void dispose() {
+    _timer?.cancel(); // Limpa o timer ao fechar a tela para não gastar memória
+    super.dispose();
+  }
+
+  // --- LÓGICA DO TEMPORIZADOR ---
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining > 0) {
+        setState(() {
+          _secondsRemaining--;
+        });
+      } else {
+        _timer?.cancel();
+        _finishSimulation(); // Tempo esgotado
+      }
+    });
+  }
+
+  String _formatTime(int seconds) {
+    int minutes = seconds ~/ 60;
+    int remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
   Future<void> _loadUserXP() async {
     final userData = await LocalStorageService.getUserData();
     setState(() { _currentXP = userData['totalXp']; });
   }
 
-
   Future<void> _loadQuestionsFromCloud() async {
     try {
       final questions = await QuestionRepository.getQuestions();
       questions.shuffle(); 
+      
       setState(() {
-        _questions = questions;
+        // PEGA APENAS AS 20 PRIMEIRAS APÓS EMBARALHAR
+        _questions = questions.take(20).toList(); 
         _isLoading = false; 
       });
+
+      // Inicia o tempo logo após carregar as questões
+      _startTimer();
+
     } catch (e) {
-    
       debugPrint('Erro ao buscar questões: $e');
     }
+  }
+
+  void _finishSimulation() {
+    // Para o cronômetro se ainda estiver rodando
+    _timer?.cancel(); 
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.emoji_events_rounded, color: AppTheme.accent, size: 32),
+            SizedBox(width: 8),
+            Text('Simulado Concluído!', style: TextStyle(color: AppTheme.primaryDark, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          _secondsRemaining <= 0 
+            ? 'O tempo se esgotou! Excelente esforço. Volte amanhã para manter sua ofensiva.'
+            : 'Você finalizou todas as 20 questões do simulado de hoje. Excelente esforço!',
+          style: const TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Fecha o dialog
+              Navigator.of(context).pop(); // Volta para o Dashboard
+            },
+            child: const Text('Voltar ao Início', style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _nextQuestion() {
@@ -55,11 +125,12 @@ class _QuestionScreenState extends State<QuestionScreen> {
       _failedAttempts = 0;
       _isAnswerCorrect = false;
       _isQuestionLocked = false;
+      
       if (_currentQuestionIndex < _questions.length - 1) {
         _currentQuestionIndex++;
       } else {
-        _questions.shuffle();
-        _currentQuestionIndex = 0;
+        // Ao invés de zerar, finaliza o simulado
+        _finishSimulation();
       }
     });
   }
@@ -111,7 +182,7 @@ class _QuestionScreenState extends State<QuestionScreen> {
 
   @override
   Widget build(BuildContext context) {
-   
+    
     if (_isLoading) {
       return Scaffold(
         backgroundColor: AppTheme.background,
@@ -146,11 +217,28 @@ class _QuestionScreenState extends State<QuestionScreen> {
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
+                
+                // --- RELÓGIO ADICIONADO AQUI ---
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
-                  child: const Text('SIMULADO ENADE', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                  child: Row(
+                    children: [
+                      const Text('SIMULADO  •  ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                      Icon(Icons.timer_rounded, size: 16, color: _secondsRemaining <= 300 ? Colors.redAccent : Colors.white),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatTime(_secondsRemaining), 
+                        style: TextStyle(
+                          color: _secondsRemaining <= 300 ? Colors.redAccent : Colors.white, 
+                          fontWeight: FontWeight.w900, 
+                          letterSpacing: 1.2
+                        )
+                      ),
+                    ],
+                  ),
                 ),
+
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(gradient: AppTheme.descendingOrange, borderRadius: BorderRadius.circular(12), boxShadow: AppTheme.cardShadow),
@@ -362,7 +450,10 @@ class _QuestionScreenState extends State<QuestionScreen> {
               padding: const EdgeInsets.symmetric(vertical: 18),
               decoration: BoxDecoration(gradient: AppTheme.descendingBlue, borderRadius: BorderRadius.circular(16), boxShadow: AppTheme.cardShadow),
               alignment: Alignment.center,
-              child: const Text('AVANÇAR PARA A PRÓXIMA', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.0)),
+              child: Text(
+                _currentQuestionIndex < _questions.length - 1 ? 'AVANÇAR PARA A PRÓXIMA' : 'FINALIZAR SIMULADO', 
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.0)
+              ),
             ),
           )
         ],

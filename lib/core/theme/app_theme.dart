@@ -42,7 +42,7 @@ class AppTheme {
     colors: [Color(0xFFEF4444), wrongRed],
   );
 
-  // Efeitos: Sombras Premium
+  // Efeitos: Sombras 
   static List<BoxShadow> cardShadow = [
     BoxShadow(color: primaryDark.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 8)),
   ];
